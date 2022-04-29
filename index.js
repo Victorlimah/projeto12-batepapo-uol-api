@@ -5,26 +5,50 @@ import { MongoClient } from "mongodb";
 import express, { json } from "express";
 
 const app = express();
+dotenv.config();
 app.use(json());
 app.use(cors());
-dotenv.config();
 
-// {name: 'João', lastStatus: 12313123}
-// O conteúdo do lastStatus será explicado nos próximos requisitos
+let db = null;
+// Passar pro dotenv depois
+const mongoClient = new MongoClient("mongodb://localhost:27017");
 
-// {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
-
-app.post("/participants", (req, res) => {
+app.post("/participants", async (req, res) => {
   const { name } = req.body;
 
+  // usando joi para verificar se não é uma string vazia
   const validation = participantSchema.validate(req.body, { abortEarly: true });
+  if (validation.error) return res.sendStatus(422);
 
-  if (validation.error) {
-    console.log(validation.error.details);
-    res.sendStatus(409);
-    return;
+  try {
+    await mongoClient.connect();
+    const dbParticipants = mongoClient.db("bate-papo-uol");
+    const collection = dbParticipants.collection("participants");
+
+    // checa se já existe participante com este nome
+    const participant = await collection.findOne({ name });
+    if (participant) return res.sendStatus(409);
+
+    await collection.insertOne({ name, lastStatus: Date.now() });
+
+    // criando mensagem de que *nome* entrou na sala
+    const time = new Date().toLocateTimeString();
+    const messages = dbParticipants.collection("participants");
+    await messages.insertOne({
+      from: name,
+      to: "Todos",
+      text: "entra na sala...",
+      type: "status",
+      time,
+    });
+
+    res.sendStatus(201);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
   }
-  res.send("deu certo");
 });
 
 app.get("/participants", (req, res) => {});
