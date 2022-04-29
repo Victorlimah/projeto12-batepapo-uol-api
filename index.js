@@ -1,5 +1,6 @@
 import joi from "joi";
 import cors from "cors";
+import dayjs from "dayjs";
 import dotenv from "dotenv";
 import { MongoClient } from "mongodb";
 import express, { json } from "express";
@@ -32,8 +33,9 @@ app.post("/participants", async (req, res) => {
     await collection.insertOne({ name, lastStatus: Date.now() });
 
     // criando mensagem de que *nome* entrou na sala
-    const time = new Date().toLocateTimeString();
-    const messages = dbParticipants.collection("participants");
+
+    const time = dayjs(Date.now()).format("HH:mm:ss");
+    const messages = dbParticipants.collection("messages");
     await messages.insertOne({
       from: name,
       to: "Todos",
@@ -51,7 +53,22 @@ app.post("/participants", async (req, res) => {
   }
 });
 
-app.get("/participants", (req, res) => {});
+app.get("/participants", async (req, res) => {
+  try {
+    await mongoClient.connect();
+    const dbParticipants = mongoClient.db("bate-papo-uol");
+    const participants = await dbParticipants
+      .collection("participants")
+      .find()
+      .toArray();
+    res.send(participants);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(400);
+  } finally {
+    mongoClient.close();
+  }
+});
 
 app.post("/messages", (req, res) => {});
 
