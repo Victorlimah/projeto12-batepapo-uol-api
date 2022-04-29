@@ -23,19 +23,19 @@ app.post("/participants", async (req, res) => {
 
   try {
     await mongoClient.connect();
-    const dbParticipants = mongoClient.db("bate-papo-uol");
-    const collection = dbParticipants.collection("participants");
+    const dbBatePapo = mongoClient.db("bate-papo-uol");
+    const participants = dbBatePapo.collection("participants");
 
     // checa se já existe participante com este nome
-    const participant = await collection.findOne({ name });
+    const participant = await participants.findOne({ name });
     if (participant) return res.sendStatus(409);
 
-    await collection.insertOne({ name, lastStatus: Date.now() });
+    await participants.insertOne({ name, lastStatus: Date.now() });
 
     // criando mensagem de que *nome* entrou na sala
 
     const time = dayjs(Date.now()).format("HH:mm:ss");
-    const messages = dbParticipants.collection("messages");
+    const messages = dbBatePapo.collection("messages");
     await messages.insertOne({
       from: name,
       to: "Todos",
@@ -70,7 +70,41 @@ app.get("/participants", async (req, res) => {
   }
 });
 
-app.post("/messages", (req, res) => {});
+app.post("/messages", async (req, res) => {
+  const { to, text, type } = req.body;
+  const { user: from } = req.headers;
+
+  // usa o Joi para valdiar os dados recebidos pelo body
+  const validation = messageSchema.validate(req.body, { abortEarly: true });
+  if (validation.error) return res.sendStatus(422);
+
+  try {
+    await mongoClient.connect();
+    const dbBatePapo = mongoClient.db("bate-papo-uol");
+    const messages = dbBatePapo.collection("messages");
+    const participants = dbBatePapo.collection("participants");
+
+    // checa se participante existe na lista
+    const participant = await participants.findOne({ name: from });
+    if (!participant) return res.sendStatus(404);
+
+    const time = dayjs(Date.now()).format("HH:mm:ss");
+    await messages.insertOne({
+      from,
+      to,
+      text,
+      type,
+      time,
+    });
+
+    res.sendStatus(201);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
+  }
+});
 
 app.get("/messages", (req, res) => {});
 
@@ -81,4 +115,10 @@ app.listen(5000, () => console.log("Servidor rodando na porta 5000"));
 // Validações JOI
 const participantSchema = joi.object({
   name: joi.string().required(),
+});
+
+const messageSchema = joi.object({
+  to: joi.string().required(),
+  text: joi.string().required(),
+  type: joi.string().valid(...["message", "private_message"]),
 });
