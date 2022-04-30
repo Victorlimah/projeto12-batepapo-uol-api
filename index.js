@@ -111,8 +111,7 @@ app.get("/messages", async (req, res) => {
   try {
     await mongoClient.connect();
     const db = mongoClient.db("bate-papo-uol");
-    const messages = dbBatePapo.collection("messages");
-    const participants = dbBatePapo.collection("participants");
+    const messages = db.collection("messages");
 
     const arrayMessages = await messages.find({}).toArray();
 
@@ -170,6 +169,23 @@ setInterval(async () => {
     const messages = db.collection("messages");
 
     const timeToDisconnect = Date.now() - 10000; // 10000 ms = 10s
+    const inactivesUsers = await participants
+      .find({ lastStatus: { $lt: timeToDisconnect } })
+      .toArray();
+
+    console.log(inactivesUsers);
+
+    inactivesUsers.forEach(async (user) => {
+      const time = dayjs(Date.now()).format("HH:mm:ss");
+      await messages.insertOne({
+        from: user.name,
+        to: "Todos",
+        text: "sai da sala...",
+        type: "status",
+        time,
+      });
+    });
+
     await participants.deleteMany({ lastStatus: { $lt: timeToDisconnect } });
   } catch (e) {
     console.log(e);
