@@ -136,7 +136,30 @@ app.get("/messages", async (req, res) => {
   }
 });
 
-app.post("/status", (req, res) => {});
+app.post("/status", async (req, res) => {
+  const { user: name } = req.headers;
+
+  try {
+    await mongoClient.connect();
+    const dbBatePapo = mongoClient.db("bate-papo-uol");
+    const messages = dbBatePapo.collection("messages");
+    const participants = dbBatePapo.collection("participants");
+
+    const participant = await participants.findOne({ name });
+    if (!participant) return res.sendStatus(404);
+
+    await participants.updateOne(
+      { name },
+      { $set: { lastStatus: Date.now() } }
+    );
+    res.sendStatus(200);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
+  }
+});
 
 app.listen(5000, () => console.log("Servidor rodando na porta 5000"));
 
