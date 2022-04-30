@@ -170,7 +170,7 @@ setInterval(async () => {
     const messages = db.collection("messages");
 
     const timeToDisconnect = Date.now() - 10000; // 10000 ms = 10s
-    db.participants.remove({ lastStatus: { $lt: timeToDisconnect } });
+    await participants.deleteMany({ lastStatus: { $lt: timeToDisconnect } });
   } catch (e) {
     console.log(e);
     res.sendStatus(500);
