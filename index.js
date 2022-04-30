@@ -18,6 +18,7 @@ app.post("/participants", async (req, res) => {
   const { name } = req.body;
 
   // usando joi para verificar se não é uma string vazia
+  participantSchema.validate();
   const validation = participantSchema.validate(req.body, { abortEarly: true });
   if (validation.error) return res.sendStatus(422);
 
@@ -106,7 +107,34 @@ app.post("/messages", async (req, res) => {
   }
 });
 
-app.get("/messages", (req, res) => {});
+app.get("/messages", async (req, res) => {
+  const { limit } = req.query;
+  const { user: from } = req.headers;
+
+  try {
+    await mongoClient.connect();
+    const db = mongoClient.db("bate-papo-uol");
+    const messages = dbBatePapo.collection("messages");
+    const participants = dbBatePapo.collection("participants");
+
+    const arrayMessages = await messages.findAll({}).toArray();
+
+    // filtrando as mensagens que o usuário pode ver:
+    arrayMessages = arrayMessages.filter((message) => {
+      return message.from === "Todos" || from === (message.from || message.to);
+    });
+
+    // testando se devem ser enviado todas ou se há limite:
+    if (limit) return res.send(arrayMessages.splice(0, limit));
+
+    res.send(arrayMessages);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
+  }
+});
 
 app.post("/status", (req, res) => {});
 
