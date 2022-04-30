@@ -24,8 +24,8 @@ app.post("/participants", async (req, res) => {
 
   try {
     await mongoClient.connect();
-    const dbBatePapo = mongoClient.db("bate-papo-uol");
-    const participants = dbBatePapo.collection("participants");
+    const db = mongoClient.db("bate-papo-uol");
+    const participants = db.collection("participants");
 
     // checa se já existe participante com este nome
     const participant = await participants.findOne({ name });
@@ -36,7 +36,7 @@ app.post("/participants", async (req, res) => {
     // criando mensagem de que *nome* entrou na sala
 
     const time = dayjs(Date.now()).format("HH:mm:ss");
-    const messages = dbBatePapo.collection("messages");
+    const messages = db.collection("messages");
     await messages.insertOne({
       from: name,
       to: "Todos",
@@ -57,11 +57,8 @@ app.post("/participants", async (req, res) => {
 app.get("/participants", async (req, res) => {
   try {
     await mongoClient.connect();
-    const dbParticipants = mongoClient.db("bate-papo-uol");
-    const participants = await dbParticipants
-      .collection("participants")
-      .find()
-      .toArray();
+    const db = mongoClient.db("bate-papo-uol");
+    const participants = await db.collection("participants").find().toArray();
     res.send(participants);
   } catch (e) {
     console.log(e);
@@ -81,9 +78,9 @@ app.post("/messages", async (req, res) => {
 
   try {
     await mongoClient.connect();
-    const dbBatePapo = mongoClient.db("bate-papo-uol");
-    const messages = dbBatePapo.collection("messages");
-    const participants = dbBatePapo.collection("participants");
+    const db = mongoClient.db("bate-papo-uol");
+    const messages = db.collection("messages");
+    const participants = db.collection("participants");
 
     // checa se participante existe na lista
     const participant = await participants.findOne({ name: from });
@@ -117,7 +114,7 @@ app.get("/messages", async (req, res) => {
     const messages = dbBatePapo.collection("messages");
     const participants = dbBatePapo.collection("participants");
 
-    const arrayMessages = await messages.findAll({}).toArray();
+    const arrayMessages = await messages.find({}).toArray();
 
     // filtrando as mensagens que o usuário pode ver:
     arrayMessages = arrayMessages.filter((message) => {
@@ -141,9 +138,8 @@ app.post("/status", async (req, res) => {
 
   try {
     await mongoClient.connect();
-    const dbBatePapo = mongoClient.db("bate-papo-uol");
-    const messages = dbBatePapo.collection("messages");
-    const participants = dbBatePapo.collection("participants");
+    const db = mongoClient.db("bate-papo-uol");
+    const participants = db.collection("participants");
 
     const participant = await participants.findOne({ name });
     if (!participant) return res.sendStatus(404);
@@ -162,6 +158,26 @@ app.post("/status", async (req, res) => {
 });
 
 app.listen(5000, () => console.log("Servidor rodando na porta 5000"));
+
+// Removendo usuários inativos através de um intervalo de tempo
+const timeToVerify = 15000; // 15000 ms = 15s
+
+setInterval(async () => {
+  try {
+    await mongoClient.connect();
+    const db = mongoClient.db("bate-papo-uol");
+    const participants = db.collection("participants");
+    const messages = db.collection("messages");
+
+    const timeToDisconnect = Date.now() - 10000; // 10000 ms = 10s
+    db.participants.remove({ lastStatus: { $lt: timeToDisconnect } });
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
+  }
+}, timeToVerify);
 
 // Validações JOI
 const participantSchema = joi.object({
