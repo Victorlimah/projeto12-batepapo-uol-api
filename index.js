@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import dotenv from "dotenv";
 import { MongoClient } from "mongodb";
 import express, { json } from "express";
+import { stripHtml } from "string-strip-html";
 
 const app = express();
 dotenv.config();
@@ -11,8 +12,7 @@ app.use(json());
 app.use(cors());
 
 let db = null;
-// Passar pro dotenv depois
-const mongoClient = new MongoClient("mongodb://localhost:27017");
+const mongoClient = new MongoClient(process.env.MONGO_URL);
 
 app.post("/participants", async (req, res) => {
   const { name } = req.body;
@@ -21,6 +21,8 @@ app.post("/participants", async (req, res) => {
   participantSchema.validate();
   const validation = participantSchema.validate(req.body, { abortEarly: true });
   if (validation.error) return res.sendStatus(422);
+
+  name = stripHtml(name).result.trim();
 
   try {
     await mongoClient.connect();
@@ -76,6 +78,9 @@ app.post("/messages", async (req, res) => {
   const validation = messageSchema.validate(req.body, { abortEarly: true });
   if (validation.error) return res.sendStatus(422);
 
+  to = stripHtml(to).result.trim();
+  text = stripHtml(text).result.trim();
+
   try {
     await mongoClient.connect();
     const db = mongoClient.db("bate-papo-uol");
@@ -110,8 +115,7 @@ app.get("/messages", async (req, res) => {
 
   try {
     await mongoClient.connect();
-    const db = mongoClient.db("bate-papo-uol");
-    const messages = db.collection("messages");
+    const messages = mongoClient.db("bate-papo-uol").collection("messages");
 
     const arrayMessages = await messages.find({}).toArray();
 
@@ -156,6 +160,29 @@ app.post("/status", async (req, res) => {
   }
 });
 
+app.delete("/messages/:id", async (req, res) => {
+  const { id } = req.params;
+  const { user: from } = req.headers;
+
+  try {
+    await mongoClient.connect();
+    const messages = mongoClient.db("bate-papo-uol").collection("messages");
+
+    const message = await messages.findOne({ _id: new ObjectId(id) });
+    if (!message) return res.sendStatus(404);
+
+    if (message.from !== from) return res.sendStatus(401);
+
+    await messages.deleteOne({ _id: message._id });
+    res.sendStatus(200);
+  } catch (e) {
+    console.log(e);
+    res.sendStatus(500);
+  } finally {
+    mongoClient.close();
+  }
+});
+
 app.listen(5000, () => console.log("Servidor rodando na porta 5000"));
 
 // Removendo usuários inativos através de um intervalo de tempo
@@ -173,20 +200,19 @@ setInterval(async () => {
       .find({ lastStatus: { $lt: timeToDisconnect } })
       .toArray();
 
-    console.log(inactivesUsers);
+    //await participants.deleteMany({ lastStatus: { $lt: timeToDisconnect } });
 
-    inactivesUsers.forEach(async (user) => {
+    inactivesUsers.forEach(async ({ name }) => {
       const time = dayjs(Date.now()).format("HH:mm:ss");
       await messages.insertOne({
-        from: user.name,
+        from: name,
         to: "Todos",
         text: "sai da sala...",
         type: "status",
         time,
       });
+      await participants.deleteOne({ name });
     });
-
-    await participants.deleteMany({ lastStatus: { $lt: timeToDisconnect } });
   } catch (e) {
     console.log(e);
     res.sendStatus(500);
