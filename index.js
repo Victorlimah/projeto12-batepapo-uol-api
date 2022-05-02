@@ -2,9 +2,9 @@ import joi from "joi";
 import cors from "cors";
 import dayjs from "dayjs";
 import dotenv from "dotenv";
-import { MongoClient } from "mongodb";
 import express, { json } from "express";
 import { stripHtml } from "string-strip-html";
+import { MongoClient, ObjectId } from "mongodb";
 
 const app = express();
 dotenv.config();
@@ -15,7 +15,7 @@ let db = null;
 const mongoClient = new MongoClient(process.env.MONGO_URL);
 
 app.post("/participants", async (req, res) => {
-  const { name } = req.body;
+  let { name } = req.body;
 
   // usando joi para verificar se não é uma string vazia
   participantSchema.validate();
@@ -51,8 +51,6 @@ app.post("/participants", async (req, res) => {
   } catch (e) {
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
   }
 });
 
@@ -60,18 +58,19 @@ app.get("/participants", async (req, res) => {
   try {
     await mongoClient.connect();
     const db = mongoClient.db("bate-papo-uol");
-    const participants = await db.collection("participants").find().toArray();
+    const participants = await db.collection("participants").find({}).toArray();
+
     res.send(participants);
   } catch (e) {
+    console.log("deu ruim no get /participants");
     console.log(e);
+
     res.sendStatus(400);
-  } finally {
-    mongoClient.close();
   }
 });
 
 app.post("/messages", async (req, res) => {
-  const { to, text, type } = req.body;
+  let { to, text, type } = req.body;
   const { user: from } = req.headers;
 
   // usa o Joi para valdiar os dados recebidos pelo body
@@ -102,37 +101,47 @@ app.post("/messages", async (req, res) => {
 
     res.sendStatus(201);
   } catch (e) {
+    console.log("deu ruim no post /messages");
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
   }
 });
 
 app.get("/messages", async (req, res) => {
-  const { limit } = req.query;
+  let { limit } = req.query;
   const { user: from } = req.headers;
+
+  limit = parseInt(limit);
+
+  function messagesAvailables(message, nameParticipant) {
+    const { from, to, type } = message;
+
+    const involved =
+      from === nameParticipant || to === nameParticipant || to === "Todos";
+    const isPublic = type === "message";
+
+    return involved && isPublic;
+  }
 
   try {
     await mongoClient.connect();
     const messages = mongoClient.db("bate-papo-uol").collection("messages");
 
-    const arrayMessages = await messages.find({}).toArray();
+    let arrayMessages = await messages.find({}).toArray();
 
     // filtrando as mensagens que o usuário pode ver:
-    arrayMessages = arrayMessages.filter((message) => {
-      return message.from === "Todos" || from === (message.from || message.to);
-    });
+    arrayMessages = arrayMessages.filter((message) =>
+      messagesAvailables(message, from)
+    );
 
     // testando se devem ser enviado todas ou se há limite:
-    if (limit) return res.send(arrayMessages.splice(0, limit));
+    if (limit && limit !== NaN) return res.send(arrayMessages.slice(-limit));
 
     res.send(arrayMessages);
   } catch (e) {
+    console.log("deu ruim no get /messages");
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
   }
 });
 
@@ -144,19 +153,19 @@ app.post("/status", async (req, res) => {
     const db = mongoClient.db("bate-papo-uol");
     const participants = db.collection("participants");
 
-    const participant = await participants.findOne({ name });
+    const participant = await participants.findOne({ name: name });
     if (!participant) return res.sendStatus(404);
 
     await participants.updateOne(
       { name },
       { $set: { lastStatus: Date.now() } }
     );
+
     res.sendStatus(200);
   } catch (e) {
+    console.log("deu ruim no post /status");
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
   }
 });
 
@@ -178,8 +187,42 @@ app.delete("/messages/:id", async (req, res) => {
   } catch (e) {
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
+  }
+});
+
+app.put("/messages/:id", async (req, res) => {
+  const { id } = req.params;
+  const { user: from } = req.headers;
+  let { to, text, type } = req.body;
+
+  const validation = messageSchema.validate(req.body, { abortEarly: true });
+  if (validation.error) return res.sendStatus(422);
+
+  to = stripHtml(to).result.trim();
+  text = stripHtml(text).result.trim();
+
+  try {
+    await mongoClient.connect();
+    const db = mongoClient.db("bate-papo-uol");
+    const participants = db.collection("participants");
+    const messages = db.collection("messages");
+
+    const participant = await participants.findOne({ name: from });
+    if (!participant) return res.sendStatus(422);
+
+    const message = await messages.findOne({ _id: new ObjectId(id) });
+    if (!message) return res.sendStatus(404);
+
+    if (message.from !== from) return res.sendStatus(401);
+
+    await messages.updateOne(
+      { _id: message._id },
+      { $set: { to, text, type } }
+    );
+  } catch (e) {
+    console.log("deu ruim no put /messages");
+    console.log(e);
+    res.sendStatus(500);
   }
 });
 
@@ -216,8 +259,6 @@ setInterval(async () => {
   } catch (e) {
     console.log(e);
     res.sendStatus(500);
-  } finally {
-    mongoClient.close();
   }
 }, timeToVerify);
 
